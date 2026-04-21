@@ -13,3 +13,5 @@ A - Zooms out on the map with pinned location
 ## Cope harder Anand Gautam  
 This is where to use the hacks [World Guessr](https://worldguessr.com)  
 This is the dude that made world guessr [@codergautam](https://github.com/codergautam)  
+
+(Cool secret when used off the world guessr site)
