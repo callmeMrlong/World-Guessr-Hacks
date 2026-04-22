@@ -1,3 +1,94 @@
+// ---------------- DEFINE guessLocation() ----------------
+function guessLocation(lat, lng) {
+  const el = document.querySelector('.leaflet-container');
+  if (!el) return console.error("No map container");
+
+  const rect = el.getBoundingClientRect();
+
+  const tile = document.querySelector('.leaflet-tile');
+  const zoom = parseInt(tile?.src.match(/z=(\d+)/)?.[1] || 2);
+
+  const scale = 256 * Math.pow(2, zoom);
+
+  // Mercator projection (Leaflet-style)
+  function project(lat, lng) {
+    const x = (lng + 180) / 360 * scale;
+
+    const latRad = lat * Math.PI / 180;
+    const y = (1 - Math.log(Math.tan(Math.PI / 4 + latRad / 2)) / Math.PI) / 2 * scale;
+
+    return { x, y };
+  }
+
+  const p = project(lat, lng);
+
+  // 🔥 KEY FIX: normalize around center of world
+  const worldCenter = scale / 2;
+
+  const screenX = (p.x - worldCenter) + rect.width / 2;
+  const screenY = (p.y - worldCenter) + rect.height / 2;
+
+  const clientX = rect.left + screenX;
+  const clientY = rect.top + screenY;
+
+  const target = document.elementFromPoint(clientX, clientY);
+  if (!target) {
+    console.warn("Click outside map:", clientX, clientY);
+    return;
+  }
+
+  function fire(type, cls) {
+    target.dispatchEvent(new cls(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY,
+      view: window
+    }));
+  }
+
+  fire('pointerdown', PointerEvent);
+  fire('mousedown', MouseEvent);
+
+  setTimeout(() => {
+    fire('pointerup', PointerEvent);
+    fire('mouseup', MouseEvent);
+    fire('click', MouseEvent);
+  }, 10);
+
+  console.log(`✅ ${lat}, ${lng} at zoom ${zoom}`);
+}
+// --------------- Red dot alignment ------------------
+(() => {
+  const map = document.querySelector('.leaflet-container');
+  if (!map) return console.error("No Leaflet map found");
+
+  const dot = document.createElement('div');
+
+  Object.assign(dot.style, {
+    position: 'absolute',
+    width: '4px',
+    height: '4px',
+    borderRadius: '50%',
+    background: 'red',
+    opacity: '0.5',
+    pointerEvents: 'none',
+    zIndex: 99999,
+    transform: 'translate(-50%, -50%)'
+  });
+
+  map.appendChild(dot);
+
+  function update() {
+    dot.style.left = (map.clientWidth / 2) + 'px';
+    dot.style.top = (map.clientHeight / 2) + 'px';
+  }
+
+  update();
+  window.addEventListener('resize', update);
+  new ResizeObserver(update).observe(map);
+})();
+// --------------- MAIN ------------------
 let display;
 let updateInterval;
 
@@ -165,9 +256,7 @@ document.addEventListener('keydown', (e) => {
     console.log("S pressed:", currentLat, currentLng);
 
     // plug your function here:
-    if (typeof window.guessLocation === "function") {
-      window.guessLocation(currentLat, currentLng);
-    }
+    guessLocation(currentLat, currentLng);
   }
 });
 
