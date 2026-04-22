@@ -181,11 +181,10 @@ function updateMapSrc() {
 }
 
 // ---------------- LOCATION ----------------
-
 function updateLocation() {
   const iframe =
     document.getElementById('streetview') ||
-    document.querySelector('iframe.streetview');
+    document.querySelector('iframe');
 
   if (!iframe) {
     if (display) display.textContent = 'No iframe found';
@@ -208,11 +207,38 @@ function updateLocation() {
 
   if (mapActive) updateMapSrc();
 
-  if (display) {
-    display.textContent = `Lat: ${answerLat}\nLng: ${answerLng}`;
-  }
-}
+  // 🔥 RESTORE CITY/COUNTRY LOOKUP
+  fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${answerLat}&lon=${answerLng}&zoom=10&addressdetails=1`
+  )
+    .then(r => r.json())
+    .then(d => {
+      const a = d.address || {};
 
+      const city =
+        a.city || a.town || a.village || a.municipality || '';
+
+      const county = a.county || '';
+      const state = a.state || '';
+      const country = a.country || 'Unknown';
+
+      let text = '';
+
+      if (city) text += city;
+      if (county && county !== city) text += `, ${county}`;
+      if (state) text += `, ${state}`;
+      text += `, ${country}`;
+
+      if (display) {
+        display.textContent = text;
+      }
+    })
+    .catch(() => {
+      if (display) {
+        display.textContent = `Lat: ${answerLat}\nLng: ${answerLng}`;
+      }
+    });
+}
 // ---------------- KEY CONTROLS ----------------
 
 document.addEventListener('keydown', (e) => {
