@@ -21,9 +21,10 @@ For the auto place hack, you need to use the red alignment dot in the middle of 
 
 ## Work in progress  
 Make the auto place pin have an offset that matches the starting map position  
-Be able to set your score 0-5,000  
+Be able to set your score 0 - 5,000  
+New Non-WASD controls (Maybe a GUI)  
 No ads  
-Afk script (not coming soon, gonna take a long time)
+Afk script (Not coming soon, gonna take a long time)
 
 ## Cope harder Anand Gautam  
 This is where to use the hacks [World Guessr](https://worldguessr.com)  
