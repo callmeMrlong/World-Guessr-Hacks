@@ -9,8 +9,10 @@ W - Toggle a map with the location pinned
 Q - Zooms in on the map with pinned location  
 A - Zooms out on the map with pinned location  
 S - Auto Place pin
-  
-  
+
+# IMPORTANT
+for the auto place hack, you need to use the red alignment dot in the middle of your map and locate it on the intersection point of the prime meridian and equator than use the hack or else it will be off by a lot.
+
 ## Cope harder Anand Gautam  
 This is where to use the hacks [World Guessr](https://worldguessr.com)  
 This is the dude that made world guessr [@codergautam](https://github.com/codergautam)  
