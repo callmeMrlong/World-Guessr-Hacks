@@ -1,29 +1,260 @@
 # Instructions  
-Paste the javascript into your bookmark bar and run it on the site  
+Paste the javascript into your bookmark bar and run it on worldguessr's home page before joining a game.  
 ``` javascript
-javascript:(function(){function guessLocation(lat,lng){const el=document.querySelector('.leaflet-container');if(!el)return console.error("No map container");const rect=el.getBoundingClientRect();const tile=document.querySelector('.leaflet-tile');const zoom=parseInt(tile?.src.match(/z=(\d+)/)?.[1]||2);const scale=256*Math.pow(2,zoom);function project(lat,lng){const x=(lng+180)/360*scale;const latRad=lat*Math.PI/180;const y=(1-Math.log(Math.tan(Math.PI/4+latRad/2))/Math.PI)/2*scale;return{x,y}}const p=project(lat,lng);const worldCenter=scale/2;const screenX=(p.x-worldCenter)+rect.width/2;const screenY=(p.y-worldCenter)+rect.height/2;const clientX=rect.left+screenX;const clientY=rect.top+screenY;const target=document.elementFromPoint(clientX,clientY);if(!target)return console.warn("Click outside map:",clientX,clientY);function fire(type,cls){target.dispatchEvent(new cls(type,{bubbles:true,cancelable:true,clientX,clientY,view:window}))}fire('pointerdown',PointerEvent);fire('mousedown',MouseEvent);setTimeout(()=>{fire('pointerup',PointerEvent);fire('mouseup',MouseEvent);fire('click',MouseEvent)},10);console.log(`✅ ${lat}, ${lng} at zoom ${zoom}`)}(()=>{const map=document.querySelector('.leaflet-container');if(!map)return;const dot=document.createElement('div');Object.assign(dot.style,{position:'absolute',width:'4px',height:'4px',borderRadius:'50%',background:'red',opacity:'0.5',pointerEvents:'none',zIndex:99999,transform:'translate(-50%,-50%)'});map.appendChild(dot);function update(){dot.style.left=(map.clientWidth/2)+'px';dot.style.top=(map.clientHeight/2)+'px'}update();window.addEventListener('resize',update);new ResizeObserver(update).observe(map)})();let display,updateInterval,mapIframe=null,isActive=false,mapActive=false,currentLat=0,currentLng=0,mapZoom=8;function hideAds(){const ad=document.getElementById('worldguessr_home_ad');if(ad){ad.style.opacity='0';ad.style.pointerEvents='none';ad.style.transition='opacity 0.3s';}}setInterval(hideAds,2000);function createDisplay(){display=document.createElement('div');Object.assign(display.style,{position:'fixed',top:'20px',left:'50%',transform:'translateX(-50%)',background:'rgba(255,255,255,0.8)',color:'black',padding:'10px 20px',borderRadius:'5px',fontSize:'16px',zIndex:9999,fontFamily:'Arial'});display.textContent='Loading location...';document.body.appendChild(display)}function removeDisplay(){if(display)display.remove();display=null;if(updateInterval)clearInterval(updateInterval)}function createMapIframe(){if(mapIframe)return;mapIframe=document.createElement('iframe');Object.assign(mapIframe.style,{position:'fixed',top:'20px',right:'20px',width:'400px',height:'300px',border:'3px solid #333',borderRadius:'10px',zIndex:10000});updateMapSrc();document.body.appendChild(mapIframe);mapActive=true}function removeMapIframe(){if(mapIframe)mapIframe.remove();mapIframe=null;mapActive=false}function updateMapSrc(){if(!mapIframe)return;const bbox=0.5/Math.pow(2,mapZoom-8);mapIframe.src='https://www.openstreetmap.org/export/embed.html?bbox='+(currentLng-bbox)+','+(currentLat-bbox)+','+(currentLng+bbox)+','+(currentLat+bbox)+'&layer=mapnik&marker='+currentLat+','+currentLng}function updateLocation(){const iframe=document.getElementById('streetview')||document.querySelector('iframe');if(!iframe){if(display)display.textContent='No iframe found';return}const u=iframe.src;const m=u.match(/location=([^,&]+),([^&]+)/);if(!m){if(display)display.textContent='No coords found';return}currentLat=parseFloat(m[1]);currentLng=parseFloat(m[2]);if(mapActive)updateMapSrc();fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentLat}&lon=${currentLng}&zoom=10&addressdetails=1`).then(r=>r.json()).then(d=>{const a=d.address||{};const city=a.city||a.town||a.village||'';const county=a.county||'';const state=a.state||'';const country=a.country||'Unknown';let text='';if(city)text+=city;if(county&&county!==city)text+=`, ${county}`;if(state)text+=`, ${state}`;text+=`, ${country}`;if(display)display.textContent=text}).catch(()=>{if(display)display.textContent=`Lat: ${currentLat}\nLng: ${currentLng}`})}document.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(k==='e'){if(!isActive){isActive=true;createDisplay();updateLocation();updateInterval=setInterval(updateLocation,2000)}}if(k==='w'){if(!mapActive){if(currentLat===0&&currentLng===0)updateLocation();mapZoom=8;setTimeout(createMapIframe,100)}else removeMapIframe()}if(k==='q'&&mapActive&&mapZoom<20){mapZoom++;updateMapSrc()}if(k==='a'&&mapActive&&mapZoom>1){mapZoom--;updateMapSrc()}if(k==='s'){guessLocation(currentLat,currentLng)}});document.addEventListener('keyup',e=>{if(e.key.toLowerCase()==='e'&&isActive){isActive=false;removeDisplay()}});})();
+javascript:(function(){
+
+/* ---------- CONFIG ---------- */
+const START_LAT = 30.0;
+const START_LNG = 0.0;
+
+/* ---------- MAP ---------- */
+function getMap(){
+  return document.querySelector('.leaflet-container');
+}
+
+/* ---------- NOTIFICATION ---------- */
+function showNotification(msg, duration=3000){
+  const existing = document.getElementById('gg-notif');
+  if(existing) existing.remove();
+
+  const notif = document.createElement('div');
+  notif.id = 'gg-notif';
+  Object.assign(notif.style, {
+    position: 'fixed',
+    bottom: '30px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: 'rgba(220,50,50,0.92)',
+    color: '#fff',
+    padding: '10px 22px',
+    borderRadius: '8px',
+    zIndex: 999999,
+    fontFamily: 'Arial',
+    fontSize: '15px',
+    fontWeight: 'bold',
+    boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
+    pointerEvents: 'none',
+    transition: 'opacity 0.4s'
+  });
+  notif.textContent = msg;
+  document.body.appendChild(notif);
+
+  setTimeout(() => {
+    notif.style.opacity = '0';
+    setTimeout(() => notif.remove(), 400);
+  }, duration);
+}
+
+/* ---------- CLICK SYSTEM ---------- */
+function guessLocation(lat, lng){
+  const mapEl = getMap();
+  if(!mapEl){
+    showNotification("❌ Map not found!");
+    return;
+  }
+
+  const rect = mapEl.getBoundingClientRect();
+
+  const tile = document.querySelector('.leaflet-tile');
+  const zoom = parseInt(tile?.src.match(/z=(\d+)/)?.[1] || 2);
+
+  const scale = 256 * Math.pow(2, zoom);
+
+  function project(lat, lng){
+    const x = (lng + 180) / 360 * scale;
+    const latRad = lat * Math.PI / 180;
+    const y = (1 - Math.log(Math.tan(Math.PI / 4 + latRad / 2)) / Math.PI) / 2 * scale;
+    return { x, y };
+  }
+
+  const origin = project(START_LAT, START_LNG);
+  const p = project(lat, lng);
+
+  const screenX = (p.x - origin.x) + rect.width / 2;
+  const screenY = (p.y - origin.y) + rect.height / 2;
+
+  const clientX = rect.left + screenX;
+  const clientY = rect.top + screenY;
+
+  /* ---------- OUT OF BOUNDS CHECK ---------- */
+  if(clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom){
+    showNotification("⚠️ Coords out of map bounds! Zoom out or pan the map.", 3500);
+    return;
+  }
+
+  const clampedX = Math.max(rect.left + 2, Math.min(clientX, rect.right - 2));
+  const clampedY = Math.max(rect.top + 2, Math.min(clientY, rect.bottom - 2));
+
+  const target = document.elementFromPoint(clampedX, clampedY);
+  if(!target){
+    showNotification("⚠️ Click target not found on map.", 3000);
+    return;
+  }
+
+  function fire(type, cls){
+    target.dispatchEvent(new cls(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX: clampedX,
+      clientY: clampedY,
+      view: window
+    }));
+  }
+
+  fire('pointerdown', PointerEvent);
+  fire('mousedown', MouseEvent);
+
+  setTimeout(() => {
+    fire('pointerup', PointerEvent);
+    fire('mouseup', MouseEvent);
+    fire('click', MouseEvent);
+  }, 10);
+
+  console.log("✅ Click:", lat, lng);
+}
+
+/* ---------- RED DOT ---------- */
+(function(){
+  const map = getMap();
+  if(!map) return;
+
+  const dot = document.createElement('div');
+  Object.assign(dot.style, {
+    position: 'absolute',
+    width: '4px',
+    height: '4px',
+    borderRadius: '50%',
+    background: 'red',
+    opacity: '0.5',
+    pointerEvents: 'none',
+    zIndex: 99999,
+    transform: 'translate(-50%,-50%)'
+  });
+
+  map.appendChild(dot);
+
+  function update(){
+    dot.style.left = (map.clientWidth / 2) + 'px';
+    dot.style.top = (map.clientHeight / 2) + 'px';
+  }
+
+  update();
+  window.addEventListener('resize', update);
+})();
+
+/* ---------- STATE ---------- */
+let display, interval;
+let active = false;
+let lat = START_LAT;
+let lng = START_LNG;
+
+/* ---------- REVERSE GEOCODE ---------- */
+async function getCityCountry(lat, lng){
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+    const data = await res.json();
+    const addr = data.address || {};
+    const city = addr.city || addr.town || addr.village || addr.county || '';
+    const country = addr.country || '';
+    return [city, country].filter(Boolean).join(', ') || 'Unknown location';
+  } catch(e){
+    return 'Location lookup failed';
+  }
+}
+
+/* ---------- STREET VIEW IFRAME ---------- */
+function getStreetViewIframe(){
+  const iframes = document.querySelectorAll('iframe');
+  for(const f of iframes){
+    if(f.src && f.src.includes('location=')) return f;
+  }
+  return null;
+}
+
+/* ---------- UPDATE LOCATION ---------- */
+async function updateLocation(){
+  const iframe = getStreetViewIframe();
+  if(!iframe){
+    if(display) display.textContent = "No Street View iframe found";
+    return;
+  }
+
+  const m = iframe.src.match(/location=([^,&]+),([^&]+)/);
+  if(!m){
+    if(display) display.textContent = "No coords found";
+    return;
+  }
+
+  lat = parseFloat(m[1]);
+  lng = parseFloat(m[2]);
+
+  const place = await getCityCountry(lat, lng);
+
+  if(display){
+    display.textContent = `${place}\nLat: ${lat}\nLng: ${lng}`;
+  }
+}
+
+/* ---------- DISPLAY ---------- */
+function createDisplay(){
+  display = document.createElement('div');
+  Object.assign(display.style, {
+    position: 'fixed',
+    top: '20px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: 'rgba(255,255,255,0.88)',
+    padding: '10px 18px',
+    zIndex: 9999,
+    fontFamily: 'Arial',
+    fontSize: '14px',
+    borderRadius: '8px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+    whiteSpace: 'pre-line',
+    textAlign: 'center'
+  });
+  display.textContent = 'Starting...';
+  document.body.appendChild(display);
+}
+
+function removeDisplay(){
+  display && display.remove();
+  clearInterval(interval);
+}
+
+/* ---------- CONTROLS ---------- */
+document.addEventListener('keydown', async e => {
+  const k = e.key.toLowerCase();
+
+  /* R = guess at current coords (instant, uses last known coords) */
+  if(k === 'r'){
+    guessLocation(lat, lng);
+  }
+
+});
+
+
+/* ---------- AUTO-START DISPLAY ---------- */
+active = true;
+createDisplay();
+updateLocation();
+interval = setInterval(updateLocation, 1000);
+
+})();
 ```
-# Hacks  
-Map with location  
+# Hacks    
 Show what city and contry your in  
 Auto Place Pin  
-No ads (w/ anti-anti-adblocker) (Anti-anti ad block is only in the js.min bookmarklet version of the script)  
+No ads (w/ anti-anti-adblocker)
 
 # Controls  
-E - Shows the location of where you are  
-W - Toggle a map with the location pinned  
-Q - Zooms in on the map with pinned location  
-A - Zooms out on the map with pinned location  
-S - Auto Place pin
+R - Auto Place Pin  
+  
+For the auto place pin to work, you should pin and expand the map.  
+The auto placing of the pin will break if you move the map from it's starting location.  
 
-# IMPORTANT
-For the auto place hack, you need to use the red alignment dot in the middle of your map and locate it on the intersection point of the prime meridian and equator than use the buttons on the side to fully zoom out and than use the hack or else it will be off by a lot.
-<img width="788" height="412" alt="Map of where to place  Alignment Dot" src="https://github.com/user-attachments/assets/3b424673-3a95-4e36-83df-d4964081b670" />
-
-## Work in progress  
-Make the auto place pin have an offset that matches the starting map position  
+## Work in progress   
 Be able to set your score 0 - 5,000  
-New Non-WASD controls (Maybe a GUI)  
 Afk script (Not coming soon, gonna take a long time)
 
 ## Cope harder Anand Gautam  
