@@ -1,48 +1,99 @@
-// ---------------- DEFINE guessLocation() ----------------
-function guessLocation(lat, lng) {
-  const el = document.querySelector('.leaflet-container');
-  if (!el) return console.error("No map container");
+javascript:(function(){
 
-  const rect = el.getBoundingClientRect();
+/* ---------- CONFIG ---------- */
+const START_LAT = 30.0;
+const START_LNG = 0.0;
+
+/* ---------- MAP ---------- */
+function getMap(){
+  return document.querySelector('.leaflet-container');
+}
+
+/* ---------- NOTIFICATION ---------- */
+function showNotification(msg, duration=3000){
+  const existing = document.getElementById('gg-notif');
+  if(existing) existing.remove();
+
+  const notif = document.createElement('div');
+  notif.id = 'gg-notif';
+  Object.assign(notif.style, {
+    position: 'fixed',
+    bottom: '30px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: 'rgba(220,50,50,0.92)',
+    color: '#fff',
+    padding: '10px 22px',
+    borderRadius: '8px',
+    zIndex: 999999,
+    fontFamily: 'Arial',
+    fontSize: '15px',
+    fontWeight: 'bold',
+    boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
+    pointerEvents: 'none',
+    transition: 'opacity 0.4s'
+  });
+  notif.textContent = msg;
+  document.body.appendChild(notif);
+
+  setTimeout(() => {
+    notif.style.opacity = '0';
+    setTimeout(() => notif.remove(), 400);
+  }, duration);
+}
+
+/* ---------- CLICK SYSTEM ---------- */
+function guessLocation(lat, lng){
+  const mapEl = getMap();
+  if(!mapEl){
+    showNotification("❌ Map not found!");
+    return;
+  }
+
+  const rect = mapEl.getBoundingClientRect();
 
   const tile = document.querySelector('.leaflet-tile');
   const zoom = parseInt(tile?.src.match(/z=(\d+)/)?.[1] || 2);
 
   const scale = 256 * Math.pow(2, zoom);
 
-  // Mercator projection (Leaflet-style)
-  function project(lat, lng) {
+  function project(lat, lng){
     const x = (lng + 180) / 360 * scale;
-
     const latRad = lat * Math.PI / 180;
     const y = (1 - Math.log(Math.tan(Math.PI / 4 + latRad / 2)) / Math.PI) / 2 * scale;
-
     return { x, y };
   }
 
+  const origin = project(START_LAT, START_LNG);
   const p = project(lat, lng);
 
-  // 🔥 KEY FIX: normalize around center of world
-  const worldCenter = scale / 2;
-
-  const screenX = (p.x - worldCenter) + rect.width / 2;
-  const screenY = (p.y - worldCenter) + rect.height / 2;
+  const screenX = (p.x - origin.x) + rect.width / 2;
+  const screenY = (p.y - origin.y) + rect.height / 2;
 
   const clientX = rect.left + screenX;
   const clientY = rect.top + screenY;
 
-  const target = document.elementFromPoint(clientX, clientY);
-  if (!target) {
-    console.warn("Click outside map:", clientX, clientY);
+  /* ---------- OUT OF BOUNDS CHECK ---------- */
+  if(clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom){
+    showNotification("⚠️ Coords out of map bounds! Zoom out or pan the map.", 3500);
     return;
   }
 
-  function fire(type, cls) {
+  const clampedX = Math.max(rect.left + 2, Math.min(clientX, rect.right - 2));
+  const clampedY = Math.max(rect.top + 2, Math.min(clientY, rect.bottom - 2));
+
+  const target = document.elementFromPoint(clampedX, clampedY);
+  if(!target){
+    showNotification("⚠️ Click target not found on map.", 3000);
+    return;
+  }
+
+  function fire(type, cls){
     target.dispatchEvent(new cls(type, {
       bubbles: true,
       cancelable: true,
-      clientX,
-      clientY,
+      clientX: clampedX,
+      clientY: clampedY,
       view: window
     }));
   }
@@ -56,15 +107,15 @@ function guessLocation(lat, lng) {
     fire('click', MouseEvent);
   }, 10);
 
-  console.log(`✅ ${lat}, ${lng} at zoom ${zoom}`);
+  console.log("✅ Click:", lat, lng);
 }
-// --------------- Red dot alignment ------------------
-(() => {
-  const map = document.querySelector('.leaflet-container');
-  if (!map) return console.error("No Leaflet map found");
+
+/* ---------- RED DOT ---------- */
+(function(){
+  const map = getMap();
+  if(!map) return;
 
   const dot = document.createElement('div');
-
   Object.assign(dot.style, {
     position: 'absolute',
     width: '4px',
@@ -74,222 +125,140 @@ function guessLocation(lat, lng) {
     opacity: '0.5',
     pointerEvents: 'none',
     zIndex: 99999,
-    transform: 'translate(-50%, -50%)'
+    transform: 'translate(-50%,-50%)'
   });
 
   map.appendChild(dot);
 
-  function update() {
+  function update(){
     dot.style.left = (map.clientWidth / 2) + 'px';
     dot.style.top = (map.clientHeight / 2) + 'px';
   }
 
   update();
   window.addEventListener('resize', update);
-  new ResizeObserver(update).observe(map);
 })();
-// --------------- MAIN ------------------
-let display;
-let updateInterval;
 
-let mapIframe = null;
-let isActive = false;
-let mapActive = false;
+/* ---------- STATE ---------- */
+let display, interval;
+let active = false;
+let lat = START_LAT;
+let lng = START_LNG;
 
-let currentCounty = '';
-let currentCountry = '';
-let currentLat = 0;
-let currentLng = 0;
-let mapZoom = 8;
+/* ---------- REVERSE GEOCODE ---------- */
+async function getCityCountry(lat, lng){
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+    const data = await res.json();
+    const addr = data.address || {};
+    const city = addr.city || addr.town || addr.village || addr.county || '';
+    const country = addr.country || '';
+    return [city, country].filter(Boolean).join(', ') || 'Unknown location';
+  } catch(e){
+    return 'Location lookup failed';
+  }
+}
 
-// ---------------- DISPLAY ----------------
+/* ---------- STREET VIEW IFRAME ---------- */
+function getStreetViewIframe(){
+  const iframes = document.querySelectorAll('iframe');
+  for(const f of iframes){
+    if(f.src && f.src.includes('location=')) return f;
+  }
+  return null;
+}
 
-function createDisplay() {
+/* ---------- UPDATE LOCATION ---------- */
+async function updateLocation(){
+  const iframe = getStreetViewIframe();
+  if(!iframe){
+    if(display) display.textContent = "No Street View iframe found";
+    return;
+  }
+
+  const m = iframe.src.match(/location=([^,&]+),([^&]+)/);
+  if(!m){
+    if(display) display.textContent = "No coords found";
+    return;
+  }
+
+  lat = parseFloat(m[1]);
+  lng = parseFloat(m[2]);
+
+  const place = await getCityCountry(lat, lng);
+
+  if(display){
+    display.textContent = `📍 ${place}\nLat: ${lat}\nLng: ${lng}`;
+  }
+}
+
+/* ---------- DISPLAY ---------- */
+function createDisplay(){
   display = document.createElement('div');
   Object.assign(display.style, {
     position: 'fixed',
     top: '20px',
     left: '50%',
     transform: 'translateX(-50%)',
-    background: 'rgba(255,255,255,0.8)',
-    color: 'black',
-    padding: '10px 20px',
-    borderRadius: '5px',
-    fontSize: '16px',
+    background: 'rgba(255,255,255,0.88)',
+    padding: '10px 18px',
     zIndex: 9999,
-    fontFamily: 'Arial, sans-serif',
-    whiteSpace: 'pre-line'
+    fontFamily: 'Arial',
+    fontSize: '14px',
+    borderRadius: '8px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+    whiteSpace: 'pre-line',
+    textAlign: 'center'
   });
-
-  display.textContent = 'Loading location...';
+  display.textContent = 'Starting...';
   document.body.appendChild(display);
 }
 
-function removeDisplay() {
-  if (display) display.remove();
-  display = null;
-
-  if (updateInterval) clearInterval(updateInterval);
-  updateInterval = null;
+function removeDisplay(){
+  display && display.remove();
+  clearInterval(interval);
 }
 
-// ---------------- MAP ----------------
+/* ---------- CONTROLS ---------- */
+document.addEventListener('keydown', async e => {
+  const k = e.key.toLowerCase();
 
-function createMapIframe() {
-  if (mapIframe) return;
-
-  mapIframe = document.createElement('iframe');
-  Object.assign(mapIframe.style, {
-    position: 'fixed',
-    top: '20px',
-    right: '20px',
-    width: '400px',
-    height: '300px',
-    border: '3px solid #333',
-    borderRadius: '10px',
-    zIndex: 10000,
-    boxShadow: '0 4px 20px rgba(0,0,0,0.5)'
-  });
-
-  updateMapSrc();
-  document.body.appendChild(mapIframe);
-  mapActive = true;
-}
-
-function removeMapIframe() {
-  if (mapIframe) mapIframe.remove();
-  mapIframe = null;
-  mapActive = false;
-}
-
-function updateMapSrc() {
-  if (!mapIframe) return;
-
-  const bbox = 0.5 / Math.pow(2, mapZoom - 8);
-
-  const url =
-    'https://www.openstreetmap.org/export/embed.html?bbox=' +
-    (currentLng - bbox) + ',' +
-    (currentLat - bbox) + ',' +
-    (currentLng + bbox) + ',' +
-    (currentLat + bbox) +
-    '&layer=mapnik&marker=' +
-    currentLat + ',' +
-    currentLng;
-
-  mapIframe.src = url;
-}
-
-// ---------------- LOCATION ----------------
-function updateLocation() {
-  const iframe =
-    document.getElementById('streetview') ||
-    document.querySelector('iframe');
-
-  if (!iframe) {
-    if (display) display.textContent = 'No iframe found';
-    return;
-  }
-
-  const u = iframe.src;
-  const locMatch = u.match(/location=([^,&]+),([^&]+)/);
-
-  if (!locMatch) {
-    if (display) display.textContent = 'No coords found';
-    return;
-  }
-
-  const answerLat = parseFloat(locMatch[1]);
-  const answerLng = parseFloat(locMatch[2]);
-
-  currentLat = answerLat;
-  currentLng = answerLng;
-
-  if (mapActive) updateMapSrc();
-
-  // 🔥 RESTORE CITY/COUNTRY LOOKUP
-  fetch(
-    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${answerLat}&lon=${answerLng}&zoom=10&addressdetails=1`
-  )
-    .then(r => r.json())
-    .then(d => {
-      const a = d.address || {};
-
-      const city =
-        a.city || a.town || a.village || a.municipality || '';
-
-      const county = a.county || '';
-      const state = a.state || '';
-      const country = a.country || 'Unknown';
-
-      let text = '';
-
-      if (city) text += city;
-      if (county && county !== city) text += `, ${county}`;
-      if (state) text += `, ${state}`;
-      text += `, ${country}`;
-
-      if (display) {
-        display.textContent = text;
-      }
-    })
-    .catch(() => {
-      if (display) {
-        display.textContent = `Lat: ${answerLat}\nLng: ${answerLng}`;
-      }
-    });
-}
-// ---------------- KEY CONTROLS ----------------
-
-document.addEventListener('keydown', (e) => {
-  const key = e.key.toLowerCase();
-
-  // START / STOP tracking (E)
-  if (key === 'e') {
-    if (!isActive) {
-      isActive = true;
+  /* T = toggle tracking display */
+  if(k === 't'){
+    if(!active){
+      active = true;
       createDisplay();
-      updateLocation();
-      updateInterval = setInterval(updateLocation, 2000);
-    }
-  }
-
-  // TOGGLE MAP (W)
-  if (key === 'w') {
-    if (!mapActive) {
-      if (currentLat === 0 && currentLng === 0) updateLocation();
-      mapZoom = 8;
-      setTimeout(createMapIframe, 100);
+      await updateLocation();
+      interval = setInterval(updateLocation, 1000);
     } else {
-      removeMapIframe();
+      active = false;
+      removeDisplay();
     }
   }
 
-  // ZOOM IN (Q)
-  if (key === 'q' && mapActive && mapZoom < 20) {
-    mapZoom++;
-    updateMapSrc();
+  /* R = guess at current coords (instant, uses last known coords) */
+  if(k === 'r'){
+    guessLocation(lat, lng);
   }
 
-  // ZOOM OUT (A)
-  if (key === 'a' && mapActive && mapZoom > 1) {
-    mapZoom--;
-    updateMapSrc();
-  }
-
-  // 🔥 YOUR CUSTOM HOOK (S)
-  if (key === 's') {
-    console.log("S pressed:", currentLat, currentLng);
-
-    // plug your function here:
-    guessLocation(currentLat, currentLng);
-  }
+  /* Q / A = zoom stubs */
+  if(k === 'q') zoomMap(1);
+  if(k === 'a') zoomMap(-1);
 });
 
-// STOP tracking on keyup E
-document.addEventListener('keyup', (e) => {
-  if (e.key.toLowerCase() === 'e' && isActive) {
-    isActive = false;
-    removeDisplay();
-  }
-});
+/* ---------- OPTIONAL ZOOM HOOK (safe stub) ---------- */
+function zoomMap(dir){
+  const tile = document.querySelector('.leaflet-tile');
+  if(!tile) return;
+  let zoom = parseInt(tile.src.match(/z=(\d+)/)?.[1] || 2);
+  zoom = Math.max(1, Math.min(20, zoom + dir));
+  console.log("Zoom request ignored (game-controlled):", zoom);
+}
+
+/* ---------- AUTO-START DISPLAY ---------- */
+active = true;
+createDisplay();
+updateLocation();
+interval = setInterval(updateLocation, 1000);
+
+})();
